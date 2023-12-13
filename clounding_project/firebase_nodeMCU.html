@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <link rel="stylesheet" href="/style/ohter.css">
+  <link rel="stylesheet" href="/style/index.css">
+  <script src="https://kit.fontawesome.com/08a7424104.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="text-center margin-y-m">
+      <h1 class="">
+        <i class="fa-regular fa-sun font-size-l"></i>&nbsp;
+        <span class="font-size-l">Current temperature & humidity</span>&nbsp;
+        <i class="fa-solid fa-cloud font-size-l"></i>
+      </h1>
+    </div>
+    <div class="flex around border-bottom-ccc border-top-ccc padding-y-m">
+      <div class="flex align-center">
+        <img src="./img/temp.png" alt="">
+        <h3 id="temp" class="margin-x-m"></h3>
+      </div>
+      <div class="flex align-center">
+        <img src="./img/humi.png" alt="">
+        <h3 id="humi" class="margin-x-m"></h3>
+      </div>
+    </div>
+
+    <div id="discomfort-index" class="flex align-center around padding-y-m border-bottom-ccc">
+    </div>
+    
+    <canvas id="myChart" class="margin-y-m"></canvas>
+  </div>
+    
+  <!-- chart.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.4.0/Chart.min.js"></script>
+  <!-- Firebase CDN -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-app.js";
+    import { getDatabase, ref, onValue, onChildAdded } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-database.js";
+
+    // 사용자의 FIREBASE에 맞게 셋팅
+    const firebaseConfig = {
+      apiKey: API_KEY,
+      authDomain: DOMAIN,
+      databaseURL: URL,
+      projectId: PROJECT_ID,
+      storageBucket: BUCKET,
+      messagingSenderId: MESSAGINGSENDERID,
+      appId: APP_ID,
+      measurementId: MEASURMENTID
+    };
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    // -------------------------------------------------------------
+
+    // firebase의 데이터를 받을 변수 생성
+    const dbRefTemp = ref(db, 'nodeMCU/Temp');
+    const dbRefHumi = ref(db, 'nodeMCU/Humi');
+    const dbRefTime = ref(db, 'nodeMCU/time');
+
+    // -------------------------------------------------------------
+    const tempWrap = document.getElementById('temp');
+    const humiWrap = document.getElementById('humi');
+    // -------------------------------------------------------------
+
+    // 비동기 로직 실행을 위해 Promise 객체 반환
+    function getFirebaseData(data, text, el='') {
+      return new Promise((res, rej) => {
+        const result = [];
+        onChildAdded(data, (snapshot) => {
+          let data = snapshot.val();
+          result.push(data);
+          if(el != '') el.innerHTML = `<span class="color-666">${text} : </span>${data} ℃`;
+          res(result);
+        }, (err) => {
+          rej(err.message);
+        });
+      });
+    }
+    
+    // -------------------------------------------------------------
+    
+    // Chat.js에 firebase 데이터 연동
+    async function addChart() {
+      try {
+        const temperature = await getFirebaseData(dbRefTemp, 'temperature', tempWrap);
+        const humidity = await getFirebaseData(dbRefHumi, 'humidity', humiWrap);
+        const currentTime = await getFirebaseData(dbRefTime, 'humidity');
+        const newTime = [];
+
+        // 시간 포맷 설정
+        currentTime.forEach(el => {
+          if(el < 10) 
+            el = `0${el}:00`
+          else el = `${el}:00`
+          newTime.push(el);
+        });
+
+        // 불쾌지수 계산
+        const discomfortIndex = (0.72*(temperature[temperature.length - 1]+humidity[humidity.length - 1])+40.6).toFixed(2);;
+
+        // 불쾌지수에 따라 바인딩 되는 요소가 바뀜
+        let exponent;
+        if(discomfortIndex <= 68) exponent = '<span class="color-green">전원 쾌적</span>';
+        else if(discomfortIndex < 75) exponent = '<span class="color-blue">불쾌를 나타냄</span>';
+        else if(discomfortIndex < 80) exponent = '<span class="color-orange">50% 정도 불쾌</span>';
+        else exponent = '<span class="color-red">전원 불쾌';
+
+        // HTML 태그 내 요소 삽입 
+        let template = `
+          <div>
+            <span class="color-666">Discomfort Index : </span>
+            <b>${discomfortIndex} %</b>
+            </div>
+            <p class="margin-x-m bold">${exponent}</p>
+          </div>
+          <button class="pointer" onclick="window.location.reload()">데이터 새로 고침</button>
+          `
+        document.getElementById('discomfort-index').insertAdjacentHTML('afterbegin', template);
+
+        // chart 생성
+        const context = document.getElementById('myChart').getContext('2d');
+        const myChart = new Chart(context, {
+          type: 'line', // 차트의 형태
+          data: {
+            labels: newTime,
+            datasets: [
+              {
+                label: 'Temperature',
+                fill: false,
+                data: temperature,
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                borderColor: 'rgba(255, 99, 132, 1)',
+                borderWidth: 1
+              },
+              {
+                label: 'Humidity',
+                fill: false,
+                data: humidity,
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+              }
+            ]
+          },
+          options: {
+            scales: {
+              yAxes: [
+                {
+                  ticks: {
+                    beginAtZero: true
+                  }
+                }
+              ]
+            }
+          }
+        });
+      } catch (err) {
+        console.log(err);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // chart 함수 실행
+    addChart();
+
+    // 10초마다 chart 함수 재실행
+    setInterval(() => {
+      document.getElementById('discomfort-index').innerHTML ="";
+      addChart();
+    }, 10000);
+
+  </script>
+</body>
+
+</html>
